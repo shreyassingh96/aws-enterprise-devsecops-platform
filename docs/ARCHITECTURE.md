@@ -58,3 +58,25 @@ This platform is designed to provide a secure, scalable, and highly available in
 - **Application Level:** HPA scales pods based on real-time metrics.
 - **Infrastructure Level:** Cluster Autoscaler provisions new EC2 instances when pods are pending due to resource constraints.
 - **Database Level:** RDS read replicas can be added to offload read traffic.
+
+```mermaid
+graph TD
+    User --> ALB["AWS Load Balancer"]
+    ALB --> EKS["Amazon EKS Cluster"]
+
+    subgraph EKS_Nodes
+        Frontend["React Frontend Pods"]
+        Backend["Node.js API Pods"]
+    end
+
+    EKS --> Frontend
+    EKS --> Backend
+
+    Backend --> RDS["Amazon RDS PostgreSQL"]
+    Backend --> Redis["Amazon ElastiCache"]
+
+    EKS --> ECR["Amazon ECR"]
+
+    Jenkins["Jenkins CI"] --> ECR
+    ArgoCD["ArgoCD GitOps"] --> EKS
+```
