@@ -1,0 +1,107 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        AWS_ACCOUNT_ID = credentials('AWS_ACCOUNT_ID')
+        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        BACKEND_REPO = 'devsecops-backend'
+        FRONTEND_REPO = 'devsecops-frontend'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        GIT_CREDENTIALS_ID = 'github-token'
+        GIT_REPO_URL = 'github.com/your-org/devsecops-platform.git'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Static Analysis & Security') {
+            parallel {
+                stage('Trivy IaC Scan') {
+                    steps {
+                        sh "trivy config ./infrastructure --exit-code 1 --severity HIGH,CRITICAL"
+                    }
+                }
+                stage('Checkov Scan') {
+                    steps {
+                        sh "checkov -d ./infrastructure --soft-fail"
+                    }
+                }
+            }
+        }
+
+        stage('Build & Scan Backend') {
+            steps {
+                dir('applications/backend') {
+                    script {
+                        sh "docker build -t ${BACKEND_REPO}:${IMAGE_TAG} ."
+                        sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${BACKEND_REPO}:${IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+
+        stage('Build & Scan Frontend') {
+            steps {
+                dir('applications/frontend') {
+                    script {
+                        sh "docker build -t ${FRONTEND_REPO}:${IMAGE_TAG} ."
+                        sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${FRONTEND_REPO}:${IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                script {
+                    sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+                    
+                    // Push Backend
+                    sh "docker tag ${BACKEND_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}"
+                    sh "docker tag ${BACKEND_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${BACKEND_REPO}:latest"
+                    sh "docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest"
+
+                    // Push Frontend
+                    sh "docker tag ${FRONTEND_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG}"
+                    sh "docker tag ${FRONTEND_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest"
+                    sh "docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest"
+                }
+            }
+        }
+
+        stage('Update GitOps Manifests') {
+            steps {
+                script {
+                    withCredentials([string(credentialsId: GIT_CREDENTIALS_ID, variable: 'GIT_TOKEN')]) {
+                        sh """
+                            git config user.email "jenkins@devsecops.com"
+                            git config user.name "Jenkins CI"
+                            cd kubernetes/overlays/dev
+                            kustomize edit set image ${ECR_REGISTRY}/${BACKEND_REPO}=${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}
+                            kustomize edit set image ${ECR_REGISTRY}/${FRONTEND_REPO}=${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG}
+                            git add kustomization.yaml
+                            git commit -m "chore: update image tags to ${IMAGE_TAG} [skip ci]"
+                            git push https://${GIT_TOKEN}@${GIT_REPO_URL} HEAD:main
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            echo "Pipeline failed. Check logs for details."
+        }
+    }
+}

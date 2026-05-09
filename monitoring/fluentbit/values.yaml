@@ -1,0 +1,22 @@
+config:
+  outputs: |
+    [OUTPUT]
+        Name loki
+        Match *
+        Url http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+        Labels job=fluentbit
+        LabelKeys $kubernetes['pod_name'], $kubernetes['namespace_name'], $kubernetes['container_name']
+        RemoveKeys kubernetes
+        Auto_Kubernetes_Labels on
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        Merge_Log On
+        Keep_Log Off
+        K8S-Logging.Parser On
+        K8S-Logging.Exclude On
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule

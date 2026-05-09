@@ -1,0 +1,131 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        // Assumes you have AWS credentials bound in Jenkins
+        AWS_ACCOUNT_ID = credentials('AWS_ACCOUNT_ID') 
+        TERRAFORM_VERSION = '1.5.7'
+    }
+
+    parameters {
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'stage', 'prod'], description: 'Target environment')
+        choice(name: 'ACTION', choices: ['plan', 'apply', 'destroy'], description: 'Terraform action to perform')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install Tools') {
+            steps {
+                script {
+                    // In a true enterprise setup, you would use a Jenkins agent Docker image 
+                    // that already has terraform, tfsec, checkov, etc. installed.
+                    sh """
+                        if ! command -v terraform &> /dev/null; then
+                            curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+                            sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com \$(lsb_release -cs) main"
+                            sudo apt-get update && sudo apt-get install terraform
+                        fi
+                    """
+                }
+            }
+        }
+
+        stage('Static Analysis & Security (DevSecOps)') {
+            parallel {
+                stage('Terraform Format') {
+                    steps {
+                        dir("infrastructure/environments/${params.ENVIRONMENT}") {
+                            sh "terraform fmt -check"
+                        }
+                    }
+                }
+                stage('Trivy IaC Scan') {
+                    steps {
+                        sh "trivy config ./infrastructure --exit-code 1 --severity HIGH,CRITICAL"
+                    }
+                }
+                stage('Checkov Scan') {
+                    steps {
+                        sh "checkov -d ./infrastructure --soft-fail"
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                dir("infrastructure/environments/${params.ENVIRONMENT}") {
+                    sh "terraform init"
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir("infrastructure/environments/${params.ENVIRONMENT}") {
+                    script {
+                        sh "terraform plan -out=tfplan"
+                        
+                        // Output the plan to the Jenkins console for review
+                        sh "terraform show -no-color tfplan > tfplan.txt"
+                        def planOutput = readFile('tfplan.txt')
+                        echo "Terraform Plan Output:\n${planOutput}"
+                    }
+                }
+            }
+        }
+
+        stage('Approval') {
+            when {
+                expression { params.ACTION == 'apply' || params.ACTION == 'destroy' }
+            }
+            steps {
+                script {
+                    // For prod, always require approval. For dev, you might auto-apply.
+                    if (params.ENVIRONMENT == 'prod' || params.ENVIRONMENT == 'stage') {
+                        timeout(time: 1, unit: 'HOURS') {
+                            input message: "Review the plan above. Approve ${params.ACTION} for ${params.ENVIRONMENT}?", ok: "Approve"
+                        }
+                    } else {
+                        echo "Skipping approval for DEV environment."
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Apply / Destroy') {
+            when {
+                expression { params.ACTION == 'apply' || params.ACTION == 'destroy' }
+            }
+            steps {
+                dir("infrastructure/environments/${params.ENVIRONMENT}") {
+                    script {
+                        if (params.ACTION == 'apply') {
+                            sh "terraform apply -auto-approve tfplan"
+                        } else if (params.ACTION == 'destroy') {
+                            sh "terraform destroy -auto-approve"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "Infrastructure pipeline completed successfully for ${params.ENVIRONMENT}."
+        }
+        failure {
+            echo "Infrastructure pipeline failed for ${params.ENVIRONMENT}. Check the logs."
+        }
+    }
+}

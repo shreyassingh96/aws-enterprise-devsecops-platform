@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: devsecops
+  namespace: argocd
+spec:
+  description: "DevSecOps Platform Project"
+  sourceRepos:
+    - "*" # In production, restrict this to your specific Git repository
+  destinations:
+    - namespace: devsecops-apps
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

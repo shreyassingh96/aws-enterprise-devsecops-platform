@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devsecops-prod
+  namespace: argocd
+spec:
+  project: devsecops
+  source:
+    repoURL: 'https://github.com/your-org/devsecops-platform.git'
+    targetRevision: HEAD
+    path: kubernetes/overlays/prod
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: devsecops-apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

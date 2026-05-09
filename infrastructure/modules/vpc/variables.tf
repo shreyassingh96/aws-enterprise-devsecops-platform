@@ -1,0 +1,36 @@
+variable "project_name" {
+  description = "The name of the project"
+  type        = string
+}
+
+variable "environment" {
+  description = "The deployment environment (e.g., dev, stage, prod)"
+  type        = string
+}
+
+variable "vpc_cidr" {
+  description = "The CIDR block for the VPC"
+  type        = string
+}
+
+variable "azs_count" {
+  description = "Number of Availability Zones to use"
+  type        = number
+  default     = 3
+}
+
+variable "private_subnets_cidr" {
+  description = "List of private subnet CIDR blocks"
+  type        = list(string)
+}
+
+variable "public_subnets_cidr" {
+  description = "List of public subnet CIDR blocks"
+  type        = list(string)
+}
+
+variable "tags" {
+  description = "Tags to apply to all VPC resources"
+  type        = map(string)
+  default     = {}
+}
