@@ -7,6 +7,28 @@
 
 A production-grade, end-to-end DevSecOps platform built on AWS. This project demonstrates industry best practices for Infrastructure as Code (IaC), Kubernetes orchestration, automated CI/CD pipelines, security scanning, and full-stack observability.
 
+```mermaid
+graph TD
+    User --> ALB["AWS Load Balancer"]
+    ALB --> EKS["Amazon EKS Cluster"]
+
+    subgraph EKS_Nodes
+        Frontend["React Frontend Pods"]
+        Backend["Node.js API Pods"]
+    end
+
+    EKS --> Frontend
+    EKS --> Backend
+
+    Backend --> RDS["Amazon RDS PostgreSQL"]
+    Backend --> Redis["Amazon ElastiCache"]
+
+    EKS --> ECR["Amazon ECR"]
+
+    Jenkins["Jenkins CI"] --> ECR
+    ArgoCD["ArgoCD GitOps"] --> EKS
+```
+
 ---
 
 ## 🏗 High-Level Architecture
